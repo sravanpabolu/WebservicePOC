@@ -29,7 +29,8 @@
 @interface ViewController () {
     int counter ;
     NSOperationQueue *zipFileDownloadQueue ;
-    
+    dispatch_group_t zipFileDownloadGroup ;
+    dispatch_queue_t zipFileSerialQueue ;
 }
 
 @end
@@ -43,6 +44,8 @@
     
     zipFileDownloadQueue = [[NSOperationQueue alloc] init] ;
     zipFileDownloadQueue.maxConcurrentOperationCount = 1 ;
+    
+    zipFileSerialQueue = dispatch_queue_create("SerialQueue", DISPATCH_QUEUE_SERIAL) ;
     
 }
 
@@ -78,8 +81,8 @@
     }
     
 // #1
-    NSInvocationOperation *fileDownloadOperation = [[NSInvocationOperation alloc] initWithTarget:self selector:@selector(startDownloadingZipFileAtUrl:) object:url] ;
-    [zipFileDownloadQueue addOperation:fileDownloadOperation] ;
+//    NSInvocationOperation *fileDownloadOperation = [[NSInvocationOperation alloc] initWithTarget:self selector:@selector(startDownloadingZipFileAtUrl:) object:url] ;
+//    [zipFileDownloadQueue addOperation:fileDownloadOperation] ;
     
     
     
@@ -121,6 +124,11 @@
 //    [zipFileDownloadQueue addOperation:fileDownloadOperation4] ;
 //    [zipFileDownloadQueue addOperation:fileDownloadOperation5] ;
     
+// #6
+    NSLog(@"Waiting to download file : %@", [url lastPathComponent]) ;
+    dispatch_async(zipFileSerialQueue, ^{
+        [self startDownloadingZipFileAtUrl:url] ;
+    }) ;
     
 
 }
@@ -130,9 +138,12 @@
   
     AFHTTPSessionManager *sessionManager = [AFHTTPSessionManager manager] ;
     
+    zipFileDownloadGroup = dispatch_group_create() ;
+    dispatch_group_enter(zipFileDownloadGroup) ;
+    
     //for progress
     [sessionManager setDownloadTaskDidWriteDataBlock:^(NSURLSession * _Nonnull session, NSURLSessionDownloadTask * _Nonnull downloadTask, int64_t bytesWritten, int64_t totalBytesWritten, int64_t totalBytesExpectedToWrite) {
-        float progress = (((float)totalBytesWritten) / totalBytesExpectedToWrite) * 100;
+        float progress = (float)(totalBytesWritten / totalBytesExpectedToWrite) * 100;
         NSLog(@"File :%@ Progress: %f percent", [url lastPathComponent], progress) ;
     }] ;
 
@@ -144,9 +155,10 @@
                                     return [DOCUMENT_DIRECTORY_URL URLByAppendingPathComponent:[response suggestedFilename]];
                                 } completionHandler:^(NSURLResponse * _Nonnull response, NSURL * _Nullable filePath, NSError * _Nullable error) {
                                     NSLog(@"Downloaded file path : %@", filePath) ;
-                                    
+                                    dispatch_group_leave(zipFileDownloadGroup);
                                 }] ;
     [downloadZipFile resume] ;
+    dispatch_group_wait(zipFileDownloadGroup, DISPATCH_TIME_FOREVER) ;
 }
 
 @end
